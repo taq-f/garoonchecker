@@ -15,12 +15,13 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/robfig/cron"
 	"github.com/taq-f/garoonchecker/server"
 	exists "github.com/taq-f/go-exists"
 )
 
 var config = new(Config)
-var historyFile = ""
+var historyFile string
 var jars = map[string]http.CookieJar{"api": nil, "web": nil}
 var ticket = map[string]string{}
 
@@ -32,7 +33,19 @@ func main() {
 		go server.Start()
 	}
 	connect()
-	time.Sleep(time.Second)
+
+	c := cron.New()
+	c.AddFunc("*/5 * * * * *", func() {
+		updates := getUpdates()
+		filtered := filterByHistory(updates)
+		fmt.Println("notify", filtered)
+	})
+	go c.Start()
+
+	// prevent this app quit
+	for {
+		time.Sleep(10000000000000)
+	}
 }
 
 func init() {
@@ -64,7 +77,11 @@ func init() {
 		}
 		defer file.Close()
 
-		file.Write(([]byte)("[]"))
+		inititalHistory := new(History)
+		inititalHistory.Ids = []int{}
+		toWrite, _ := json.Marshal(inititalHistory)
+
+		file.Write(toWrite)
 	}
 
 	// Cookie jar
@@ -78,7 +95,13 @@ func readConfig() {
 		panic(err)
 	}
 
-	configPath := path.Join(path.Dir(ex), "config.json")
+	var configPath string
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	} else {
+		configPath = path.Join(path.Dir(ex), "config.json")
+	}
+
 	raw, err := ioutil.ReadFile(configPath)
 	fmt.Println(configPath, string(raw))
 	if err != nil {
@@ -90,8 +113,6 @@ func readConfig() {
 }
 
 func connect() {
-	fmt.Println("connecting...")
-
 	username := config.Garoon.Account.Username
 	password := config.Garoon.Account.Password
 
@@ -109,8 +130,6 @@ func connect() {
 		fmt.Println("failed to get ticket")
 		return
 	}
-
-	getUpdates()
 }
 
 func loginApi(username string, password string) bool {
@@ -137,8 +156,6 @@ func loginApi(username string, password string) bool {
 		fmt.Println("JSON Unmarshal error:", err)
 		return false
 	}
-
-	fmt.Println("loing api", result.Success)
 
 	return result.Success
 }
@@ -217,14 +234,20 @@ func receiveMail(t map[string]string) bool {
 	return resp.StatusCode == 302
 }
 
-func getUpdates() {
+func getUpdates() *Updates {
 	receiveMail(ticket)
 
 	client := &http.Client{
 		Jar: jars["api"],
 	}
 
-	data := ReqeustUpdatesInfo{"2017-03-30T06:10:59Z", "2017-04-01T06:10:59Z"}
+	t := time.Now().UTC()
+	const l = "2006-01-02T15:04:05Z"
+
+	ed := t.Add(-24 * time.Hour)
+	st := t
+
+	data := ReqeustUpdatesInfo{Start: st.Format(l), End: ed.Format(l)}
 	b, _ := json.Marshal(data)
 
 	resp, _ := client.Post(
@@ -237,12 +260,60 @@ func getUpdates() {
 
 	if err := json.Unmarshal(byteArray, result); err != nil {
 		fmt.Println("JSON Unmarshal error:", err)
-		return
+		return nil
+	}
+	defer resp.Body.Close()
+
+	return result
+}
+
+func filterByHistory(updates *Updates) []int {
+	// read history
+	raw, err := ioutil.ReadFile(historyFile)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
 	}
 
-	fmt.Println("Notification")
-	fmt.Println(len(result.Mail), result.Mail)
-	defer resp.Body.Close()
+	// var history []string
+	history := new(History)
+	json.Unmarshal(raw, history)
+
+	filtered := []int{}
+
+	for i := 0; i < len(updates.Mail); i++ {
+		// it the upadate in history array?
+		u := updates.Mail[i]
+
+		contains := false
+
+		for j := 0; j < len(history.Ids); j++ {
+			h := history.Ids[j]
+			if u.Id == h {
+				contains = true
+				break
+			}
+		}
+		if !contains {
+			filtered = append(filtered, u.Id)
+		}
+	}
+
+	// save new updates to the history file
+	summedUp := append(history.Ids, filtered...)
+
+	newHistory := new(History)
+	newHistory.Ids = summedUp
+
+	s, err := json.Marshal(newHistory)
+	if err != nil {
+		fmt.Println("error!")
+		return nil
+	}
+
+	ioutil.WriteFile(historyFile, s, os.ModePerm)
+
+	return filtered
 }
 
 type Config struct {
@@ -287,4 +358,8 @@ type Mail struct {
 	Id         int    `json:"id"`
 	SenderName string `json:"senderName"`
 	Title      string `json:"title"`
+}
+
+type History struct {
+	Ids []int `json:"ids"`
 }
