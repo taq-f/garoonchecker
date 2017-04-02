@@ -6,7 +6,6 @@ import (
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("REQUEST PATH", r.URL.Path)
 	switch r.URL.Path {
 	case "/loginWeb":
 		handleLoginWeb(w, r)
