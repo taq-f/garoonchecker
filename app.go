@@ -11,9 +11,11 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/taq-f/garoonchecker/server"
 	exists "github.com/taq-f/go-exists"
 )
 
@@ -25,7 +27,12 @@ var ticket = map[string]string{}
 func main() {
 	fmt.Println("start main")
 	readConfig()
+	if config.Debug {
+		fmt.Println("starting debug server")
+		go server.Start()
+	}
 	connect()
+	time.Sleep(time.Second)
 }
 
 func init() {
@@ -39,7 +46,7 @@ func init() {
 
 	var workDirPath = path.Join(dir, ".garoonchecker")
 
-	if !exists.Exists(workDirPath) {
+	if !exists.File(workDirPath) {
 		err = os.Mkdir(workDirPath, 0777)
 		if err != nil {
 			fmt.Println("failed to create app work directory", err)
@@ -49,7 +56,7 @@ func init() {
 
 	historyFile = path.Join(workDirPath, "history.json")
 
-	if !exists.Exists(historyFile) {
+	if !exists.File(historyFile) {
 		file, err := os.Create(historyFile)
 
 		if err != nil {
@@ -73,6 +80,7 @@ func readConfig() {
 
 	configPath := path.Join(path.Dir(ex), "config.json")
 	raw, err := ioutil.ReadFile(configPath)
+	fmt.Println(configPath, string(raw))
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
@@ -95,7 +103,7 @@ func connect() {
 		os.Exit(1)
 	}
 
-	ticket := getTicket()
+	ticket = getTicket()
 
 	if ticket == nil {
 		fmt.Println("failed to get ticket")
@@ -129,6 +137,8 @@ func loginApi(username string, password string) bool {
 		fmt.Println("JSON Unmarshal error:", err)
 		return false
 	}
+
+	fmt.Println("loing api", result.Success)
 
 	return result.Success
 }
@@ -172,16 +182,16 @@ func getTicket() map[string]string {
 		return nil
 	}
 
-	ticket := map[string]string{}
+	t := map[string]string{}
 
 	doc.Find("form[name^=mail_receive] input[type=hidden]").Each(func(_ int, s *goquery.Selection) {
 		// fmt.Println(s)
 		val, _ := s.Attr("value")
 		name, _ := s.Attr("name")
-		ticket[name] = val
+		t[name] = val
 	})
 
-	return ticket
+	return t
 }
 
 func receiveMail(t map[string]string) bool {
@@ -236,6 +246,7 @@ func getUpdates() {
 }
 
 type Config struct {
+	Debug  bool   `json:"debug"`
 	Garoon Garoon `json:"garoon"`
 }
 

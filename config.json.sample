@@ -1,0 +1,16 @@
+{
+    "debug": true,
+    "garoon": {
+        "account": {
+            "username": "foo",
+            "password": "bar"
+        },
+        "url": {
+            "loginWeb": "http://localhost:3000/loginWeb",
+            "loginApi": "http://localhost:3000/loginApi",
+            "receiveEmail": "http://localhost:3000/receiveEmail",
+            "portal": "http://localhost:3000/portal",
+            "notificationList": "http://localhost:3000/notificationList"
+        }
+    }
+}
