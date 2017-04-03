@@ -38,9 +38,12 @@ func main() {
 	c.AddFunc("*/5 * * * * *", func() {
 		updates := getUpdates()
 		filtered := filterByHistory(updates)
-		fmt.Println("notify", filtered)
+		fmt.Println("-----------------------------")
+		for i := 0; i < len(filtered); i++ {
+			fmt.Println(filtered[i])
+		}
 	})
-	go c.Start()
+	c.Start()
 
 	// prevent this app quit
 	for {
@@ -69,20 +72,23 @@ func init() {
 
 	historyFile = path.Join(workDirPath, "history.json")
 
-	if !exists.File(historyFile) {
-		file, err := os.Create(historyFile)
-
-		if err != nil {
-			fmt.Println("error on opening history file")
-		}
-		defer file.Close()
-
-		inititalHistory := new(History)
-		inititalHistory.Ids = []int{}
-		toWrite, _ := json.Marshal(inititalHistory)
-
-		file.Write(toWrite)
+	if exists.File(historyFile) {
+		// delete the file if exists
+		os.Remove(historyFile)
 	}
+
+	file, err := os.Create(historyFile)
+
+	if err != nil {
+		fmt.Println("error on opening history file")
+	}
+	defer file.Close()
+
+	inititalHistory := new(History)
+	inititalHistory.Ids = []int{}
+	toWrite, _ := json.Marshal(inititalHistory)
+
+	file.Write(toWrite)
 
 	// Cookie jar
 	jars["api"], _ = cookiejar.New(nil)
@@ -244,8 +250,8 @@ func getUpdates() *Updates {
 	t := time.Now().UTC()
 	const l = "2006-01-02T15:04:05Z"
 
-	ed := t.Add(-24 * time.Hour)
-	st := t
+	st := t.Add(-24 * time.Hour * 7)
+	ed := t
 
 	data := ReqeustUpdatesInfo{Start: st.Format(l), End: ed.Format(l)}
 	b, _ := json.Marshal(data)
@@ -267,7 +273,7 @@ func getUpdates() *Updates {
 	return result
 }
 
-func filterByHistory(updates *Updates) []int {
+func filterByHistory(updates *Updates) []*Notification {
 	// read history
 	raw, err := ioutil.ReadFile(historyFile)
 	if err != nil {
@@ -280,6 +286,7 @@ func filterByHistory(updates *Updates) []int {
 	json.Unmarshal(raw, history)
 
 	filtered := []int{}
+	filteredUpdates := []*Notification{}
 
 	for i := 0; i < len(updates.Mail); i++ {
 		// it the upadate in history array?
@@ -296,6 +303,10 @@ func filterByHistory(updates *Updates) []int {
 		}
 		if !contains {
 			filtered = append(filtered, u.Id)
+			n := new(Notification)
+			n.Id = u.Id
+			n.Content = u.Title + " from " + u.SenderName
+			filteredUpdates = append(filteredUpdates, n)
 		}
 	}
 
@@ -313,7 +324,7 @@ func filterByHistory(updates *Updates) []int {
 
 	ioutil.WriteFile(historyFile, s, os.ModePerm)
 
-	return filtered
+	return filteredUpdates
 }
 
 type Config struct {
@@ -362,4 +373,10 @@ type Mail struct {
 
 type History struct {
 	Ids []int `json:"ids"`
+}
+
+type Notification struct {
+	Id      int
+	Title   string
+	Content string
 }
