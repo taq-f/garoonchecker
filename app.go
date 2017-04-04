@@ -35,13 +35,20 @@ func main() {
 	connect()
 
 	c := cron.New()
-	c.AddFunc("*/5 * * * * *", func() {
+	// c.AddFunc("*/5 * * * * *", func() {
+	c.AddFunc("0 */3 * * * *", func() {
 		updates := getUpdates()
 		filtered := filterByHistory(updates)
-		fmt.Println("-----------------------------")
+
+		t := time.Now()
+		const l = "2006-01-02 15:04:05"
+
+		fmt.Println(t.Format(l) + "-----------------------------")
 		for i := 0; i < len(filtered); i++ {
 			fmt.Println(filtered[i])
 		}
+
+		notify(filtered)
 	})
 	c.Start()
 
@@ -327,9 +334,42 @@ func filterByHistory(updates *Updates) []*Notification {
 	return filteredUpdates
 }
 
+func notify(notifications []*Notification) {
+	contents := []string{}
+	for i := 0; i < len(notifications); i++ {
+		contents = append(contents, notifications[i].Content)
+	}
+
+	if len(notifications) == 0 {
+		return
+	}
+
+	data := map[string]string{"text": strings.Join(contents, "\n")}
+
+	b, err := json.Marshal(data)
+	if err != nil {
+		fmt.Println("ERR", err)
+		return
+	}
+
+	client := &http.Client{}
+
+	resp, _ := client.Post(
+		config.Notification.Slack.Url,
+		"application/json",
+		bytes.NewBuffer(b),
+	)
+	defer resp.Body.Close()
+}
+
 type Config struct {
-	Debug  bool   `json:"debug"`
-	Garoon Garoon `json:"garoon"`
+	Debug        bool   `json:"debug"`
+	Garoon       Garoon `json:"garoon"`
+	Notification struct {
+		Slack struct {
+			Url string `json:"url"`
+		} `json:"slack"`
+	} `json:"notification"`
 }
 
 type Garoon struct {

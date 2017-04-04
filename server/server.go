@@ -5,6 +5,11 @@ import (
 	"net/http"
 )
 
+func Start() {
+	http.HandleFunc("/", handler)
+	http.ListenAndServe(":3000", nil)
+}
+
 func handler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/loginWeb":
@@ -17,12 +22,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		handlePortal(w, r)
 	case "/notificationList":
 		handleNotificationList(w, r)
+	case "/notificationWebHook":
+		handleNotificationWebHook(w, r)
 	}
-}
-
-func Start() {
-	http.HandleFunc("/", handler)
-	http.ListenAndServe(":3000", nil)
 }
 
 func handleLoginWeb(w http.ResponseWriter, r *http.Request) {
@@ -68,4 +70,8 @@ func handleNotificationList(w http.ResponseWriter, r *http.Request) {
 			]
 		}
 	`)
+}
+
+func handleNotificationWebHook(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "dummy")
 }
