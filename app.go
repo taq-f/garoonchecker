@@ -7,15 +7,14 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
-	"net/url"
 	"os"
 	"path"
 	"strings"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/robfig/cron"
+	"github.com/taq-f/garoonchecker/connector"
 	"github.com/taq-f/garoonchecker/server"
 	exists "github.com/taq-f/go-exists"
 )
@@ -32,12 +31,24 @@ func main() {
 		fmt.Println("starting debug server")
 		go server.Start()
 	}
-	connect()
+
+	connectorConfig := connector.Config{}
+	connectorConfig.Account.Username = config.Garoon.Account.Username
+	connectorConfig.Account.Password = config.Garoon.Account.Password
+	connectorConfig.Url.LoginWeb = config.Garoon.Url.LoginWeb
+	connectorConfig.Url.LoginApi = config.Garoon.Url.LoginApi
+	connectorConfig.Url.ReceiveEmail = config.Garoon.Url.ReceiveEmail
+	connectorConfig.Url.Portal = config.Garoon.Url.Portal
+	connectorConfig.Url.NotificationList = config.Garoon.Url.NotificationList
+
+	conn := new(connector.Garoon)
+	conn.Initialize(connectorConfig)
+	conn.Connect()
 
 	c := cron.New()
 	// c.AddFunc("*/5 * * * * *", func() {
 	c.AddFunc("0 */3 * * * *", func() {
-		updates := getUpdates()
+		updates := conn.GetUpdates()
 		filtered := filterByHistory(updates)
 
 		t := time.Now()
@@ -125,162 +136,7 @@ func readConfig() {
 	json.Unmarshal(raw, config)
 }
 
-func connect() {
-	username := config.Garoon.Account.Username
-	password := config.Garoon.Account.Password
-
-	retApi := loginApi(username, password)
-	retWeb := loginWeb(username, password)
-
-	if !(retApi && retWeb) {
-		fmt.Println("failed to login")
-		os.Exit(1)
-	}
-
-	ticket = getTicket()
-
-	if ticket == nil {
-		fmt.Println("failed to get ticket")
-		return
-	}
-}
-
-func loginApi(username string, password string) bool {
-	data := LoginInfo{username, password}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return false
-	}
-
-	client := &http.Client{
-		Jar: jars["api"],
-	}
-
-	resp, _ := client.Post(
-		config.Garoon.Url.LoginApi,
-		"application/json",
-		bytes.NewBuffer(b),
-	)
-	defer resp.Body.Close()
-	byteArray, err := ioutil.ReadAll(resp.Body)
-	result := new(LoginResult)
-
-	if err := json.Unmarshal(byteArray, result); err != nil {
-		fmt.Println("JSON Unmarshal error:", err)
-		return false
-	}
-
-	return result.Success
-}
-
-func loginWeb(username string, password string) bool {
-	client := &http.Client{
-		Jar: jars["web"],
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	data := url.Values{}
-	data.Add("_account", username)
-	data.Add("_password", password)
-
-	resp, _ := client.Post(
-		config.Garoon.Url.LoginWeb,
-		"application/x-www-form-urlencoded",
-		strings.NewReader(data.Encode()),
-	)
-	defer resp.Body.Close()
-
-	return resp.StatusCode == 302
-}
-
-func getTicket() map[string]string {
-	client := &http.Client{
-		Jar: jars["web"],
-	}
-
-	resp, _ := client.Get(
-		config.Garoon.Url.Portal,
-	)
-	defer resp.Body.Close()
-
-	doc, err := goquery.NewDocumentFromResponse(resp)
-
-	if err != nil {
-		fmt.Println("error on new doc")
-		return nil
-	}
-
-	t := map[string]string{}
-
-	doc.Find("form[name^=mail_receive] input[type=hidden]").Each(func(_ int, s *goquery.Selection) {
-		// fmt.Println(s)
-		val, _ := s.Attr("value")
-		name, _ := s.Attr("name")
-		t[name] = val
-	})
-
-	return t
-}
-
-func receiveMail(t map[string]string) bool {
-	client := &http.Client{
-		Jar: jars["web"],
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	data := url.Values{}
-	data.Add("csrf_ticket", t["csrf_ticket"])
-	data.Add("aid", "264")
-	data.Add("cmd", t["cmd"])
-
-	resp, _ := client.Post(
-		config.Garoon.Url.ReceiveEmail,
-		"application/x-www-form-urlencoded",
-		strings.NewReader(data.Encode()),
-	)
-	defer resp.Body.Close()
-
-	return resp.StatusCode == 302
-}
-
-func getUpdates() *Updates {
-	receiveMail(ticket)
-
-	client := &http.Client{
-		Jar: jars["api"],
-	}
-
-	t := time.Now().UTC()
-	const l = "2006-01-02T15:04:05Z"
-
-	st := t.Add(-24 * time.Hour * 7)
-	ed := t
-
-	data := ReqeustUpdatesInfo{Start: st.Format(l), End: ed.Format(l)}
-	b, _ := json.Marshal(data)
-
-	resp, _ := client.Post(
-		config.Garoon.Url.NotificationList,
-		"application/json",
-		bytes.NewBuffer(b),
-	)
-	byteArray, _ := ioutil.ReadAll(resp.Body)
-	result := new(Updates)
-
-	if err := json.Unmarshal(byteArray, result); err != nil {
-		fmt.Println("JSON Unmarshal error:", err)
-		return nil
-	}
-	defer resp.Body.Close()
-
-	return result
-}
-
-func filterByHistory(updates *Updates) []*Notification {
+func filterByHistory(updates *connector.Updates) []*Notification {
 	// read history
 	raw, err := ioutil.ReadFile(historyFile)
 	if err != nil {
@@ -363,52 +219,25 @@ func notify(notifications []*Notification) {
 }
 
 type Config struct {
-	Debug        bool   `json:"debug"`
-	Garoon       Garoon `json:"garoon"`
+	Debug  bool `json:"debug"`
+	Garoon struct {
+		Account struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		} `json:"account"`
+		Url struct {
+			LoginWeb         string `json:"loginWeb"`
+			LoginApi         string `json:"loginApi"`
+			ReceiveEmail     string `json:"receiveEmail"`
+			Portal           string `json:"portal"`
+			NotificationList string `json:"notificationList"`
+		} `json:"url"`
+	} `json:"garoon"`
 	Notification struct {
 		Slack struct {
 			Url string `json:"url"`
 		} `json:"slack"`
 	} `json:"notification"`
-}
-
-type Garoon struct {
-	Account struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	} `json:"account"`
-	Url struct {
-		LoginWeb         string `json:"loginWeb"`
-		LoginApi         string `json:"loginApi"`
-		ReceiveEmail     string `json:"receiveEmail"`
-		Portal           string `json:"portal"`
-		NotificationList string `json:"notificationList"`
-	} `json:"url"`
-}
-
-type LoginInfo struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type LoginResult struct {
-	Success bool `json:"success"`
-}
-
-type ReqeustUpdatesInfo struct {
-	Start string `json:"start"`
-	End   string `json:"end"`
-}
-
-type Updates struct {
-	Success bool `json:"success"`
-	Mail    []Mail
-}
-
-type Mail struct {
-	Id         int    `json:"id"`
-	SenderName string `json:"senderName"`
-	Title      string `json:"title"`
 }
 
 type History struct {
