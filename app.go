@@ -46,8 +46,13 @@ func main() {
 	conn.Connect()
 
 	c := cron.New()
-	// c.AddFunc("*/5 * * * * *", func() {
-	c.AddFunc("0 */3 * * * *", func() {
+	var intervals string
+	if config.Debug {
+		intervals = "*/5 * * * * *"
+	} else {
+		intervals = "0 */3 * * * *"
+	}
+	c.AddFunc(intervals, func() {
 		updates := conn.GetUpdates()
 		filtered := filterByHistory(updates)
 
