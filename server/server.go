@@ -87,17 +87,32 @@ func handleReceiveEmail(w http.ResponseWriter, r *http.Request) {
 
 func handleNotificationList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `
-		{
-			"success": true,
-			"mail": [
-				{"id": 100000, "senderName": "100000@example.com", "title": "abount 100000"},
-				{"id": 100001, "senderName": "100001@example.com", "title": "abount 100001"},
-				{"id": 100002, "senderName": "100002@example.com", "title": "abount 100002"},
-				{"id": 100003, "senderName": "100003@example.com", "title": "abount 100003"}
-			]
-		}
-	`)
+
+	type mail struct {
+		Id         int    `json:"id"`
+		SenderName string `json:"senderName"`
+		Title      string `json:"title"`
+	}
+
+	var ret struct {
+		Success bool   `json:"success"`
+		Mail    []mail `json:"mail"`
+	}
+
+	ret.Success = true
+	ret.Mail = []mail{}
+
+	for i := 0; i < 4; i++ {
+		ret.Mail = append(ret.Mail, mail{
+			Id:         100000 + i,
+			SenderName: fmt.Sprint(100000+i) + "@example.com",
+			Title:      "abount " + fmt.Sprint(100000+i),
+		})
+	}
+
+	b, _ := json.Marshal(ret)
+
+	fmt.Fprintf(w, string(b))
 }
 
 func handleNotificationWebHook(w http.ResponseWriter, r *http.Request) {
