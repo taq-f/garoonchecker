@@ -173,7 +173,7 @@ func filterByHistory(updates *connector.Updates) []*Notification {
 			filtered = append(filtered, u.Id)
 			n := new(Notification)
 			n.Id = u.Id
-			n.Content = u.Title + " from " + u.SenderName
+			n.Content = u.Title
 			filteredUpdates = append(filteredUpdates, n)
 		}
 	}
